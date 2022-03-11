@@ -1,0 +1,118 @@
+---
+title: "STAA 566 - HW4"
+author: "Suzanne Brenimer"
+date: "3/10/2022"
+output: html_document
+knit: (function(input_file, encoding){out_dir <- 'docs';
+  rmarkdown::render(input_file, encoding=encoding,
+  output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Load libraries
+library(tidyverse)
+library(kableExtra)
+library(lubridate)
+library(stringr)
+library(reactable)
+
+```
+
+# Denver Traffic Incidents
+
+## Data Source
+
+For this assignment, I once again chose to work with the Denver traffic incidents data that I used for HW3, and my Shiny dashboard. The data and a full description of data collection and features are availble throught the Denver Open Data Catalog (https://www.denvergov.org/opendata/dataset/city-and-county-of-denver-traffic-accidents). This data set spans from 2013 to the present, and contains over 200,000 individual records. The data set is rich in features, such as environmental conditions, information about the participants, vehicle types, location names, and incident causes. 
+
+It was necessary to pare the data set down to present a visually digestible map, but this wealth of information may still be of interest to anyone using Denver's transportation corridors, so a table format is quite useful.
+
+## Table Functionality and Format
+
+Examining the data set to answer questions of interest such as dangerous times of day, dangerous road conditions, and dangerous geospatial locations/factors (as I explored in the map assignment) generally requires that the data be summarized into counts, i.e. total number of incidents, number of incidents with at least one fatality, etc. 
+
+But summarizing can mean losing information that may still be of interest. Presenting these data in a table allows the user to view the summary counts but also preserves the individual records for easier "drill-down" viewing.  I chose to set up multiple filter options for the user to select and toggle in order to easily narrow down the data. I also included a search box which gives the user greater flexibility and also allows searching street names. I chose to group the table results by neighborhood in order to give top-line summary counts, and allow the user to choose whether or not they wanted to look at individual records.
+
+
+## Table
+
+```{r table_data}
+# Load data
+# Load traffic incidents data from Denver website
+traf <- read.csv("https://www.denvergov.org/media/gis/DataCatalog/traffic_accidents/csv/traffic_accidents.csv")
+
+# for development/testing, faster to load from local copy
+# traf <- read.csv("data/traffic_accidents.csv")
+
+# Prepare data for presentation as table
+# columns to omit
+drop_cols <- c("POINT_X","POINT_Y","shape","first_occurrence_date",
+               "last_occurrence_date","reported_date","incident_id",
+               "offense_id","offense_code","offense_code_extension")
+# factor_cols <- c("incident_address")
+
+traf1 <- traf %>%
+  filter(neighborhood_id != "") %>%
+  mutate_if(is.character,str_trim) %>%
+  mutate(incident_yr = year(first_occurrence_date),
+         incident_mo = month(first_occurrence_date,label=TRUE),
+         incident_date = date(first_occurrence_date)) %>%
+  # mutate_if(is.character,as.factor) %>%
+  filter(incident_yr > 2017) %>%
+  select(-one_of(drop_cols)) %>%
+  arrange(incident_date,neighborhood_id)
+
+drop_colnums_2 <- c(3:4,7:8,12:14,22:24,26,28:30,32,35:38)
+traf2 <- traf1 %>%
+  #select(-drop_colnums_2) %>%
+  select(neighborhood_id,incident_yr,incident_date,FATALITIES,SERIOUSLY_INJURED,pedestrian_ind,bicycle_ind,incident_address,LIGHT_CONDITION,ROAD_CONDITION,top_traffic_accident_offense)
+
+
+```
+
+
+```{r}
+library(crosstalk)
+
+data <- SharedData$new(traf2)
+
+bscols(
+  widths = c(2, 10),
+  list(
+    filter_select("neighborhood_id", "Neighborhood", data, ~neighborhood_id),
+    filter_select("incident_yr", "Year", data, ~incident_yr),
+    filter_select("light_cond", "Light Condition", data, ~LIGHT_CONDITION),
+    filter_select("road_cond", "Road Condition", data, ~ROAD_CONDITION),
+    filter_checkbox("fatal", "Fatality", data, ~FATALITIES>0),
+    filter_checkbox("pedestrian","Pedestrian Involved",data,~pedestrian_ind>0),
+    filter_checkbox("bicycle","Bicyclist Involved",data,~bicycle_ind>0)
+    
+  ),
+  reactable(data, 
+            minRows = 10,
+            columns = list(neighborhood_id = colDef(name = "Neighborhood", align="left"), 
+                           incident_yr = colDef(name = "Year", align = "left"),
+                           incident_date = colDef(name = "Date", align="left"),
+                           FATALITIES = colDef(name = "Number of Fatalities", align = "right", aggregate="sum"), 
+                           SERIOUSLY_INJURED = colDef(name = "Number Seriously Injured", align="right", aggregate="sum"), 
+                           pedestrian_ind = colDef(name = "Number Pedestrians Involved", align="right", aggregate="sum"), 
+                           bicycle_ind = colDef(name = "Number Bicyclists Involved",align="right", aggregate="sum"),
+                           incident_address =colDef(name = "Approx. Address",align="left"),
+                           LIGHT_CONDITION = colDef(name = "Light", align="left"), 
+                           ROAD_CONDITION = colDef(name = "Road", align="left"), 
+                           top_traffic_accident_offense = colDef(name = "Offense", align="left")
+                           ),
+            columnGroups = list(
+                colGroup(name = "Conditions", columns = c("LIGHT_CONDITION","ROAD_CONDITION")),
+                colGroup(name = "People Involved",columns = c("FATALITIES","SERIOUSLY_INJURED","pedestrian_ind","bicycle_ind")),
+                colGroup(name = "Incident Date",columns=c("incident_yr","incident_date"))
+              ),
+              groupBy="neighborhood_id",
+              highlight = TRUE,
+              striped = TRUE,
+              searchable=TRUE
+  )
+)
+
+```
+
